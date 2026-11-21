@@ -11,24 +11,37 @@ jobs:
     timeout-minutes: 60
     env:
       CI: "1"
+      NO_COLOR: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
-      - run: npm install --no-audit --no-fund
-      - run: npx expo install --fix
-      - run: npm test
-      - run: npx expo prebuild --platform android --no-install
       - name: Build APK
-        working-directory: android
-        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64
-      - run: |
+        shell: bash
+        run: |
+          set +e
+          step() {
+            echo "::group::$1"; local t="$1"; shift
+            "$@" > /tmp/log 2>&1; local rc=$?; cat /tmp/log; echo "::endgroup::"
+            if [ $rc -ne 0 ]; then
+              msg=$(tail -n 60 /tmp/log | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')
+              echo "::error title=$t failed::$msg"; exit 1
+            fi
+          }
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          npm config set legacy-peer-deps true
+          step "npm install" npm install --no-audit --no-fund
+          step "expo install --fix" npx expo install --fix
+          step "tests" npm test
+          step "prebuild" npx expo prebuild --platform android --no-install
+          cd android
+          step "gradle" ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a,x86_64
+          cd ..
           mkdir -p dist
           cp android/app/build/outputs/apk/release/app-release.apk dist/SundayFarms-${{ github.run_number }}.apk
       - uses: actions/upload-artifact@v4
